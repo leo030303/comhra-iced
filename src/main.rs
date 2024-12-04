@@ -1,3 +1,5 @@
+use iced::widget::text_editor;
+use iced::Font;
 use std::fs;
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
@@ -6,8 +8,7 @@ use url::Url;
 use arboard::Clipboard;
 use iced::widget::svg::Handle;
 use iced::widget::{
-    button, column, container, markdown, row, scrollable, text, text_input, Row, Space, Svg,
-    Tooltip,
+    button, column, container, markdown, row, scrollable, text, Row, Space, Svg, Tooltip,
 };
 use iced::{Center, Element, Length, Subscription, Task, Theme};
 use iced_aw::Spinner;
@@ -26,7 +27,7 @@ pub fn main() -> iced::Result {
 #[derive(Default)]
 struct App {
     ollama: Ollama,
-    prompt: String,
+    prompt_content: text_editor::Content,
     current_model: Option<LocalModel>,
     current_conversation: Option<PathBuf>,
     chats_list: Vec<(ChatMessage, Vec<markdown::Item>)>,
@@ -45,7 +46,6 @@ enum Message {
     ToggleSidebar,
     LinkClicked(markdown::Url),
     CopyChat(String),
-    UpdatePrompt(String),
     SubmitPrompt,
     SaveConversation,
     LoadConversation,
@@ -54,6 +54,7 @@ enum Message {
     NewChatButtonPressed,
     LoadConversationList,
     ToggleIsGenerating,
+    EditPrompt(text_editor::Action),
 }
 
 impl App {
@@ -70,7 +71,7 @@ impl App {
         (
             Self {
                 ollama: ollama.clone(),
-                prompt: String::new(),
+                prompt_content: text_editor::Content::new(),
                 models_list: vec![],
                 conversations_list: vec![],
                 show_sidebar: true,
@@ -107,28 +108,30 @@ impl App {
                 println!("The following url was clicked: {url}");
             }
             Message::CopyChat(s) => Clipboard::new().unwrap().set_text(s).unwrap(),
-            Message::UpdatePrompt(s) => self.prompt = s,
+            Message::EditPrompt(action) => self.prompt_content.perform(action),
             Message::SubmitPrompt => {
                 let mut reload_conversation_list = false;
+                let prompt_text = self.prompt_content.text();
                 if self.current_conversation.is_none() {
                     let mut conversation_file =
                         dirs::config_dir().expect("Couldn't find config dir");
                     conversation_file.push("github.com.leo030303.comhra/");
                     conversation_file.push("conversations/");
-                    let mut filename = match self.prompt.split_at_checked(40) {
+
+                    let mut filename = match prompt_text.split_at_checked(40) {
                         Some((title, _)) => title.to_string(),
-                        None => self.prompt.clone(),
+                        None => prompt_text.clone(),
                     };
                     filename.push_str(".json");
                     conversation_file.push(filename);
                     self.current_conversation = Some(conversation_file);
                     reload_conversation_list = true;
                 };
-                let markdown_items = markdown::parse(&self.prompt).collect();
+                let markdown_items = markdown::parse(&prompt_text).collect();
                 self.chats_list.push((
                     ChatMessage {
                         role: MessageRole::User,
-                        content: self.prompt.clone(),
+                        content: prompt_text.clone(),
                         images: None,
                     },
                     markdown_items,
@@ -149,7 +152,7 @@ impl App {
                 let chat_request =
                     ChatMessageRequest::new(self.current_model.clone().unwrap().name, conversation);
                 let ollama = self.ollama.clone();
-                self.prompt = String::new();
+                self.prompt_content = text_editor::Content::new();
                 return Task::done(Message::ToggleIsGenerating)
                     .chain(
                         Task::future(async move {
@@ -408,9 +411,21 @@ impl App {
                         )))
                         .height(Length::Fill),
                         row![
-                            text_input("Enter your chat", &self.prompt)
-                                .on_input(Message::UpdatePrompt)
-                                .on_submit(Message::SubmitPrompt),
+                            text_editor(&self.prompt_content)
+                                .placeholder("Enter your chat")
+                                .on_action(Message::EditPrompt)
+                                .padding(10)
+                                .font(Font::MONOSPACE),
+                            Tooltip::new(
+                                button(Svg::new(Handle::from_memory(include_bytes!(
+                                    "../icons/tick.svg"
+                                ))))
+                                .on_press(Message::SubmitPrompt)
+                                .width(Length::Fixed(50.0))
+                                .height(Length::Fixed(40.0)),
+                                "Submit Prompt",
+                                iced::widget::tooltip::Position::Top
+                            ),
                             if self.is_generating {
                                 column![Spinner::new()].width(30.0)
                             } else {
