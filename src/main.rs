@@ -1,6 +1,7 @@
 use std::fs;
 use std::os::linux::fs::MetadataExt;
 use std::path::PathBuf;
+use url::Url;
 
 use arboard::Clipboard;
 use iced::widget::svg::Handle;
@@ -57,7 +58,15 @@ enum Message {
 
 impl App {
     fn new() -> (Self, Task<Message>) {
-        let ollama = Ollama::default();
+        let mut config_file = dirs::config_dir().expect("Couldn't find config dir");
+        config_file.push("github.com.leo030303.comhra/");
+        config_file.push("config_host_address.txt");
+        let ollama = if config_file.exists() {
+            Ollama::from_url(Url::parse(fs::read_to_string(config_file).unwrap().trim()).unwrap())
+        } else {
+            Ollama::default()
+        };
+
         (
             Self {
                 ollama: ollama.clone(),
